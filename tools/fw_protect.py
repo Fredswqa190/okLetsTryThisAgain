@@ -75,6 +75,13 @@ def protect_firmware(infile, outfile, version, message):
         list = util.print_hex(firmware_blob)
         thing.write(str(list))
 
+    #AESoutput
+    cipher = AES.new(aesKey, AES.MODE_CBC, iv=aesiv)
+    data = cipher.decrypt(AESoutput)
+    with open('pain.txt', 'w') as thing2:
+        list = util.print_hex(data)
+        thing2.write(str(list))
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Firmware Update Tool')
     parser.add_argument("--infile", help="Path to the firmware image to protect.", required=True)

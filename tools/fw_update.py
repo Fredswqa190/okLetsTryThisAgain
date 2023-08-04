@@ -31,7 +31,7 @@ from util import *
 #from fw_protect import lengthCheck
 
 RESP_OK = b"\x00"
-FRAME_SIZE = 258
+FRAME_SIZE = 1024
 counter = 0
 
 # Function that sends metadata to the bootloader
