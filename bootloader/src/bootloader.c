@@ -1,3 +1,8 @@
+// Copyright 2023 The MITRE Corporation. ALL RIGHTS RESERVED
+// Approved for public release. Distribution unlimited 23-02181-13.
+
+// Hardware Imports
+//First commit
 #include "inc/hw_memmap.h" // Peripheral Base Addresses
 #include "inc/lm3s6965.h"  // Peripheral Bit Masks and Registers
 #include "inc/hw_types.h"  // Boolean type
@@ -38,25 +43,32 @@ void deAES(unsigned int cSize, unsigned char cText[cSize], uint8_t iv[16]);
 #define FLASH_PAGESIZE 1024
 #define FLASH_WRITESIZE 4
 
+
 // Protocol Constants
 #define OK ((unsigned char)0x00)
 #define ERROR ((unsigned char)0x01)
 #define UPDATE ((unsigned char)'U')
 #define BOOT ((unsigned char)'B')
+/*#define aesKey AES_KEY
+#define iv IV
+#define chaKey CHA_KEY
+#define iv2 NONCE
+#define aad AAD*/
+
 
 // Firmware v2 is embedded in bootloader
 // Read up on these symbols in the objcopy man page (if you want)!
 extern int _binary_firmware_bin_start;
 extern int _binary_firmware_bin_size;
 
+char* aesKey = AES_KEY;
+char* iv = IV;
+
 // Device metadata
 uint16_t *fw_version_address = (uint16_t *)METADATA_BASE;
 uint16_t *fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t *fw_release_message_address;
 void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len);
-
-// Firmware Buffer
-unsigned char data[FLASH_PAGESIZE];
 
 int main(void){
 
@@ -111,7 +123,7 @@ void load_initial_firmware(void){
 
     // Create buffers for saving the release message
     uint8_t temp_buf[FLASH_PAGESIZE];
-    char initial_msg[] = "This is the initial release message.";
+    char initial_msg[] = "This is the initial release message. This is test";
     uint16_t msg_len = strlen(initial_msg) + 1;
     uint16_t rem_msg_bytes;
 
@@ -170,6 +182,8 @@ void load_firmware(void){
     int frame_length = 0;
     int read = 0;
     uint32_t rcv = 0;
+
+    uint32_t data_index = 0;
     uint32_t page_addr = FW_BASE;
     uint32_t version = 0;
     uint32_t size = 0;
@@ -194,7 +208,8 @@ void load_firmware(void){
     uart_write_hex(UART2, size);
     nl(UART2);
 
-    // Compare to old version and abort if older (note special case for version 0).
+
+// Compare to old version and abort if older (note special case for version 0).
     uint16_t old_version = *fw_version_address;
 
     if (version != 0 && version < old_version){
@@ -214,28 +229,45 @@ void load_firmware(void){
     program_flash(METADATA_BASE, (uint8_t *)(&metadata), 4);
 
     uart_write(UART1, OK); // Acknowledge the metadata.
-
+    /* Loop here until you can get all your characters and stuff */
+    
     int c = 0;
     uint32_t fwSize = 0;
+    unsigned int cc20TextSize = 0;
     uint32_t aesTextSize = 0;
     int ctr =0;
-    char buffer[31000];
+    char buffer[3000];
 
-    /* Loop here until you can get all your characters and stuff */
     while (1){
-        //THIS IS THE FRAME LENGTH DO NOT DELETE
+        
         // Get two bytes for the length.
+
+        /* DO NOT TOUCH THIS*/
         rcv = uart_read(UART1, BLOCKING, &read);
         frame_length = (int)rcv << 8;
         rcv = uart_read(UART1, BLOCKING, &read);
         frame_length += (int)rcv;
+        //uart_write_str(UART2, frame_length);
 
         if (c==0){
+            /*rcv = uart_read(UART1, BLOCKING, &read);
+            fwSize = (int)rcv << 8;
+            rcv = uart_read(UART1, BLOCKING, &read);
+            fwSize += (int)rcv;
+            //uart_write_str(UART2, fwSize);
+        
+            rcv = uart_read(UART1, BLOCKING, &read);
+            cc20TextSize = (int)rcv << 8;
+            rcv = uart_read(UART1, BLOCKING, &read);
+            cc20TextSize += (int)rcv;
+            //uart_write_str(UART2, cc20TextSize);*/
+
             rcv = uart_read(UART1, BLOCKING, &read);
             aesTextSize = (int)rcv << 8;
             rcv = uart_read(UART1, BLOCKING, &read);
             aesTextSize += (int)rcv;
             //uart_write_str(UART2, aesTextSize);
+
             c++;
         }
 
@@ -243,47 +275,93 @@ void load_firmware(void){
         for (int i = 0; i < frame_length; i++){
             buffer[i+256*ctr] = uart_read(UART1, BLOCKING, &read);
             //uart_write_hex(UART2, buffer[i]);
-        }
-
-            // If we filed our page buffer, program it
-            if(frame_length == 0){
-                uart_write_str(UART2, "Got zero length frame.\n");
+        } // for
+        
+        // If we filed our page buffer, program it
+        if (frame_length==0){
+            char buffer2[cc20TextSize];
+            for (int i = 0; i < fwSize-4; i++){
+                buffer2[i] = buffer[i];
             }
-            
-            //decrypt via cbc
-            aes_decrypt((char* )AES_KEY, (char* )IV, buffer, aesTextSize);
+            uart_write_hex(UART2, buffer2);
 
-            //receive size of actual firmware
-            fwSize = (int)buffer[0] << 8;
-            fwSize += (int)buffer[1];
-
-            //dynamically allocate a buffer for firmware
-            char cText[fwSize];
-            for (int i = 0; i < fwSize; i++){
-                cText[i] = buffer[i+2];
+            int tag[16];
+            for (int i = 0; i < 16; i++){
+                tag[i] = buffer[i+cc20TextSize];
             }
 
-            //hash via sha-256
             char hash1[32];
             for (int i = 0; i < 32; i++){
-                hash1[i] = buffer[i+fwSize+2];
+                hash1[i] = buffer[i+cc20TextSize+16];
             }
 
-            //compare hashes and reject if bad
+            void* cc20Text[cc20TextSize];
+            for (int i=0;i<cc20TextSize;i++){
+                cc20Text[i] = buffer2[i];
+            }
+    
+            unsigned char finalData[aesTextSize];
+            for (int i=0;i<aesTextSize;i++){
+                finalData[i] = cc20Text[i];
+            }
+
             unsigned char hash1compare[32];
-            sha_hash((unsigned char*)cText, fwSize, hash1compare);
+            sha_hash(finalData, aesTextSize, hash1compare);
             for(int i=0; i<32;i++){
                 if (hash1compare[i] != hash1[i]){
                     SysCtlReset();
                     return;
                 }
             }
+            char AESencrypted[aesTextSize];
+            for (int i=0;i<aesTextSize;i++){
+                AESencrypted[i] = finalData[i];
+            }
 
-            /*int x=1;
+            aes_decrypt(aesKey, iv, AESencrypted, aesTextSize);
+
+            uint32_t clearSize = 0;
+            uint32_t clearSize2 = 0;
+            clearSize2 = AESencrypted[0];
+            clearSize = (int)clearSize2 << 8;
+            clearSize2 = AESencrypted[1];
+            clearSize += (int)clearSize2;
+
+            unsigned char firmware[clearSize];
+            for (int i=0;i<clearSize;i++){
+                firmware[i]=AESencrypted[i];
+            }
+
+            char hash2[32];
+            for (int i=clearSize;i<clearSize+32;i++){
+                hash2[i]=AESencrypted[i];
+            }
+
+            unsigned char hash2compare[32];
+            sha_hash(firmware, clearSize, hash2compare);
+            
+            for(int i=0; i<32;i++){
+                if (hash2compare[i] != hash2[i]){
+                    SysCtlReset();
+                    return;
+                }
+            }
+
+            if(frame_length == 0){
+                uart_write_str(UART2, "Got zero length frame.\n");
+            }
+            /*if (data_index != clearSize){
+                uart_write(UART1, ERROR);
+                SysCtlReset();
+            }*/
+
+
+            int x=1;
             int pad = 0;
             while (1){
                 if (fwSize<1024*x){
                     pad=(1024*x)-fwSize;
+                    return pad;
                     break;
                 }
                 else{
@@ -292,22 +370,21 @@ void load_firmware(void){
                 }
             unsigned char* padding[fwSize+pad];
             for (int i=0;i<fwSize;i++){
-                padding[i]=(unsigned char*)buffer[i];
+                padding[i]=firmware[i];
             }
             for (int i=0;i<pad;i++){
                 padding[i+fwSize]=0;
-            }*/
+            }
 
             // Try to write flash and check for error
-            // check size
-            if (program_flash(page_addr, (unsigned char *)cText, (size_t)fwSize)){
+            if (program_flash(page_addr, padding, FLASH_PAGESIZE)){
                 uart_write(UART1, ERROR); // Reject the firmware
                 SysCtlReset();            // Reset device
                 return;
             }
 
             // Verify flash program
-            if (memcmp(cText, (void *) page_addr, (size_t)fwSize) != 0){
+            if (memcmp(padding, (void *) page_addr, FLASH_PAGESIZE) != 0){
                 uart_write_str(UART2, "Flash check failed.\n");
                 uart_write(UART1, ERROR); // Reject the firmware
                 SysCtlReset();            // Reset device
@@ -318,8 +395,12 @@ void load_firmware(void){
             uart_write_str(UART2, "Page successfully programmed\nAddress: ");
             uart_write_hex(UART2, page_addr);
             uart_write_str(UART2, "\nBytes: ");
-            uart_write_hex(UART2, fwSize);
+            uart_write_hex(UART2, FLASH_PAGESIZE);
             nl(UART2);
+
+            // Update to next page
+            page_addr += FLASH_PAGESIZE;
+            data_index = 0;
 
             // If at end of firmware, go to main
             if (frame_length == 0){
@@ -330,6 +411,7 @@ void load_firmware(void){
         ctr++;
         uart_write(UART1, OK); // Acknowledge the frame.
     }                          // while(1)
+}
 
 /*
  * Program a stream of bytes to the flash.
@@ -368,7 +450,6 @@ long program_flash(uint32_t page_addr, unsigned char *data, unsigned int data_le
         for (i = i; i < 4; i++){
             word = (word >> 8) | 0xFF000000;
         }
-
         // Program word
         return FlashProgram(&word, page_addr + num_full_bytes, 4);
     }else{
@@ -413,3 +494,30 @@ void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
         uart_write_str(uart, " ");
     }
 }
+
+//decrypts AES
+/*void deAES(unsigned int cSize, unsigned char cText[cSize], uint8_t iv[16]){
+    aes_decrypt(aesKey, iv, (uint8_t*)cText, (uint16_t*)cSize);
+    uart_write(UART1, 'd');
+}*/
+
+//decrypts chacha20poly1305
+/*void deCC20(char* key, char* nonce, char* ctext, int cSize){
+    const br_sslrec_in_chapol_class* vd = &br_sslrec_out_clear_vtable;
+
+
+    return 1;
+}
+
+
+int aes_decrypt(char* key, char* iv, char* ct, int len) {
+    const br_block_cbcdec_class* vd = &br_aes_big_cbcdec_vtable;
+    br_aes_gen_cbcdec_keys v_dc;
+    const br_block_cbcdec_class **dc;
+
+    dc = &v_dc.vtable;
+    vd->init(dc, key, KEY_LEN);
+    vd->run(dc, iv, ct, len);
+
+    return 1;
+}*/
