@@ -31,13 +31,14 @@ from util import *
 #from fw_protect import lengthCheck
 
 RESP_OK = b"\x00"
-FRAME_SIZE = 256
+FRAME_SIZE = 258
+counter = 0
 
 # Function that sends metadata to the bootloader
 def send_metadata(ser, metadata, debug=False):
     # Extracts version and size from metadata and displays it
-    version, size = struct.unpack_from("<HH", metadata)
-    print(f"Version: {version}\nSize: {size} bytes\n")
+    version, size, cTextSize = struct.unpack_from("<HHH", metadata)
+    print(f"Version: {version}\nSize: {size} bytes\n cTextSize: {cTextSize} bytes\n")
 
     # Defines the old version
     oldVersion = 1
@@ -95,8 +96,8 @@ def update(ser, infile, debug):
         firmware_blob = fp.read()
 
     # Extracts metadata and firmware data
-    metadata = firmware_blob[:4]
-    firmware = firmware_blob[4:]
+    metadata = firmware_blob[:6]
+    firmware = firmware_blob[6:]
 
     # Sends metadata to the bootloader
     send_metadata(ser, metadata, debug=debug)

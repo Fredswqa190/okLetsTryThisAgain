@@ -63,6 +63,9 @@ uint16_t *fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t *fw_release_message_address;
 void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len);
 
+//firmware file cache
+unsigned char data[FLASH_PAGESIZE];
+
 int main(void){
 
     // A 'reset' on UART0 will re-start this code at the top of main, won't clear flash, but will clean ram.
@@ -84,6 +87,13 @@ int main(void){
     uart_write_str(UART2, "Welcome to the BWSI Vehicle Update Service!\n");
     uart_write_str(UART2, "Send \"U\" to update, and \"B\" to run the firmware.\n");
     uart_write_str(UART2, "Writing 0x20 to UART0 will reset the device.\n");
+    uart_write_str(UART2, "' ROFL:ROFL:ROFL:ROFL'\n");
+    uart_write_str(UART2, "'         _^___      '\n");
+    uart_write_str(UART2, "' L    __/   [] \    '\n");
+    uart_write_str(UART2, "'LOL===__        \   '\n");
+    uart_write_str(UART2, "' L      \________]  '\n");
+    uart_write_str(UART2, "'         I   I      '\n");
+    uart_write_str(UART2, "'        --------/   '\n");
 
     int resp;
     while (1){
@@ -176,9 +186,12 @@ void load_firmware(void){
     int frame_length = 0;
     int read = 0;
     uint32_t rcv = 0;
+    uint32_t data_index = 0;
     uint32_t page_addr = FW_BASE;
     uint32_t version = 0;
     uint32_t size = 0;
+    uint32_t bufferIndex = 0;
+    volatile uint32_t fwSize = 0;
 
     // Get version as 16 bytes 
     rcv = uart_read(UART1, BLOCKING, &read);
@@ -198,6 +211,14 @@ void load_firmware(void){
 
     uart_write_str(UART2, "Received Firmware Size: ");
     uart_write_hex(UART2, size);
+    nl(UART2);
+
+    rcv = uart_read(UART1, BLOCKING, &read);
+    fwSize = (int)rcv << 8;
+    rcv = uart_read(UART1, BLOCKING, &read);
+    fwSize += (int)rcv;
+    uart_write_str(UART2, "received frame length\n");
+    uart_write_hex(UART2, fwSize);
     nl(UART2);
 
 
@@ -222,10 +243,6 @@ void load_firmware(void){
 
     uart_write(UART1, OK); // Acknowledge the metadata.
     /* Loop here until you can get all your characters and stuff */
-    
-    int c = 0;
-    volatile uint32_t fwSize = 0;
-    int ctr =0;
 
     //sets all values to 0 in buffer
     memset(buffer, 0x0, 30000);
@@ -240,52 +257,41 @@ void load_firmware(void){
         rcv = uart_read(UART1, BLOCKING, &read);
         frame_length += (int)rcv;
         //uart_write_str(UART2, frame_length);
-
-        if (c==0){
-            rcv = uart_read(UART1, BLOCKING, &read);
-            fwSize = (int)rcv << 8;
-            rcv = uart_read(UART1, BLOCKING, &read);
-            fwSize += (int)rcv;
-            //uart_write_str(UART2, aesTextSize);
-            uart_write_str(UART2, "received frame length\n");
-            c++;
-        }
         
         uart_write_str(UART2, "received frame length outside\n");
 
         // Get the number of bytes specified
         uart_write_str(UART2, "beginning to write to buffer\n");
-        for (int i = 0; i < frame_length; i++){
-            buffer[i+(256*ctr)] = uart_read(UART1, 0, &read);
-            //uart_write_hex(UART2, buffer[i]);
-        } // for
-        uart_write_str(UART2, "done\n");
-        ctr++;
-        uart_write(UART1, OK); // Acknowledge the frame.
-        uart_write_str(UART2, "sent OK message\n");
 
-            // If we filed our page buffer, program it
-        if(frame_length == 0){
-            uart_write_str(UART2, "Got zero length frame.\n");
-            
-            /*int x=1;
-            int pad = 0;
-            while (1){
-                if (fwSize<16*x){
-                    pad=(16*x)-fwSize;
-                    break;
-                }
-                else{
-                    x+=1;
-                }
-                }
-            char* padding[fwSize+pad];
-            for (int i=0;i<fwSize;i++){
-                padding[i]=(unsigned char*)buffer[i];
+        //ascii art bc ive lost my mind:
+        uart_write_str(UART2, "⣿⣿⣿⣿⣿⣿⠿⠛⢻⡟⢉⡱⢹⣿⠄⠄⠄⠄⠄⠄⠈⠉⠙⠋⣹⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣿⣿⠿⠉⠄⠄⠄⠈⢿⣶⡀⣾⣿⠄⠄⠄⠄⠄⠄⠰⠗⠄⢠⣾⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⠟⠁⠄⠄⠄⠄⠄⠄⠘⠿⠟⠛⠉⠁⠄⠄⠄⠄⠄⠄⠠⠄⠈⣑⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⡋⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⢈⣻⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣆⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⢀⠄⠄⠄⠄⠄⠄⠄⠄⠄⠸⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⡿⠁⠄⠄⠄⠄⠄⣰⡀⠄⠄⠄⠄⠄⡿⣂⠄⠄⢀⠄⠄⠄⠄⠄⠈⢿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣧⡄⠄⠄⠄⠄⠄⣛⡓⠄⠄⠄⠄⠄⠐⠁⢤⠄⢱⡇⠄⠄⠄⠄⠄⠄⠈⠉⠉ \n");
+        uart_write_str(UART2, "⣿⣿⡇⠄⠄⠄⠄⣊⠄⣄⠘⣶⣄⣈⣶⣶⣦⣤⣴⣾⠃⠄⠄⢀⣾⣷⣶⣶⣶⣾ \n");
+        uart_write_str(UART2, "⣿⣿⠁⠄⠄⠄⠄⣿⣤⣤⣴⣿⣿⣿⣿⣿⣿⣿⣿⣷⣂⡀⠄⢸⣿⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⡇⠄⣀⣔⣦⠄⠘⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠄⠄⠄⢻⣿⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣶⣾⣿⣿⣿⠄⠙⠿⠿⣿⣿⣿⣿⣿⣿⠿⢟⣭⠄⠄⠄⠄⠄⠈⢻⣿⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣿⣿⣿⣿⣇⠄⠄⠄⠄⠄⣿⣿⣷⠄⠄⠄⠈⠛⠄⠄⠄⠄⠄⠄⠄⠻⣿⣿⣿ \n");
+        uart_write_str(UART2, "⣿⣿⣿⣿⣿⡏⠄⢀⣠⡶⠶⠷⠷⠟⠤⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠈⢿⣿ \n");
+        uart_write_str(UART2, "⣿⣿⣿⣿⡏⠄⠄⠁⠄⠄⠄⠄⠄⠄⠄⠄⠄ \n");
+
+        // Get the number of bytes specified
+        for (int i = 0; i < frame_length; ++i){
+            data[data_index] = uart_read(UART1, BLOCKING, &read);
+            data_index += 1;
+        } // for
+
+        // If we filed our page buffer, program it
+        if (data_index == FLASH_PAGESIZE || frame_length == 0){
+            for (int i=0; i<FLASH_PAGESIZE;i++){
+                buffer[bufferIndex]=data[i];
             }
-            for (int i=0;i<pad;i++){
-                padding[i+fwSize]=0;
-            }*/
+            if(frame_length == 0){
+                uart_write_str(UART2, "Got zero length frame.\n");
 
             //decrypt via cbc
             size_t size = 0;
@@ -365,13 +371,16 @@ void load_firmware(void){
             nl(UART2);
 
             // If at end of firmware, go to main
-            if (frame_length == 0){
-                uart_write(UART1, OK);
-                break;
+                if (frame_length == 0){
+                    uart_write(UART1, OK);
+                    break;
+                }
             }
-            }
-        } // if
-    }                          // while(1)
+        }
+        uart_write(UART1, OK); // Acknowledge the frame.
+        uart_write_str(UART2, "sent OK message\n");
+    } // if
+}                          // while(1)
 
 /*
  * Program a stream of bytes to the flash.

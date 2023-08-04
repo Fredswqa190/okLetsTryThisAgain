@@ -57,11 +57,12 @@ def protect_firmware(infile, outfile, version, message):
 
 
     # Pack version and size into two little-endian shorts
-    metadata = struct.pack('<HH', version, len(firmwareAndSize))
+    metadata = struct.pack('<HHH', version, len(firmwareAndSize), cTextSize)
     print(metadata)
+
     #adding size
     #structure: metadata, ctextsize, encrypted(size+actualFirmware+hash), message, 0
-    firmware_blob=metadata+cTextSize.to_bytes(2, 'big') + AESoutput + message.encode() + b'\x00'
+    firmware_blob=metadata + AESoutput + message.encode() + b'\x00'
     print('metadata: ' + str(len(metadata)))
     
     print(len(firmware_blob))
