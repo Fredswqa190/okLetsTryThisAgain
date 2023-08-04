@@ -2,6 +2,7 @@
 // Approved for public release. Distribution unlimited 23-02181-13.
 
 // Hardware Imports
+//First commit
 #include "inc/hw_memmap.h" // Peripheral Base Addresses
 #include "inc/lm3s6965.h"  // Peripheral Bit Masks and Registers
 #include "inc/hw_types.h"  // Boolean type
@@ -11,6 +12,15 @@
 #include "driverlib/flash.h"     // FLASH API
 #include "driverlib/sysctl.h"    // System control API (clock/reset)
 #include "driverlib/interrupt.h" // Interrupt API
+
+//importing secrets file
+#include "secrets.h"
+
+//importing bearssl
+#include "bearssl.h"
+#include "bearssl_ssl.h"
+#include <beaverssl.h>
+#include "bearssl_block.h"
 
 // Library Imports
 #include <string.h>
@@ -23,6 +33,7 @@ void load_initial_firmware(void);
 void load_firmware(void);
 void boot_firmware(void);
 long program_flash(uint32_t, unsigned char *, unsigned int);
+void deAES(unsigned int cSize, unsigned char cText[cSize], uint8_t iv[16]);
 
 // Firmware Constants
 #define METADATA_BASE 0xFC00 // base address of version and firmware size in Flash
@@ -31,6 +42,7 @@ long program_flash(uint32_t, unsigned char *, unsigned int);
 // FLASH Constants
 #define FLASH_PAGESIZE 1024
 #define FLASH_WRITESIZE 4
+
 
 // Protocol Constants
 #define OK ((unsigned char)0x00)
@@ -164,11 +176,10 @@ void load_firmware(void){
     int frame_length = 0;
     int read = 0;
     uint32_t rcv = 0;
-
-    uint32_t data_index = 0;
     uint32_t page_addr = FW_BASE;
     uint32_t version = 0;
     uint32_t size = 0;
+    uint32_t clearSize = 0;
 
     // Get version as 16 bytes 
     rcv = uart_read(UART1, BLOCKING, &read);
@@ -210,6 +221,10 @@ void load_firmware(void){
     program_flash(METADATA_BASE, (uint8_t *)(&metadata), 4);
 
     uart_write(UART1, OK); // Acknowledge the metadata.
+    int c = 0;
+    uint32_t aesTextSize = 0;
+    int ctr =0;
+    char buffer[31000];
 
     /* Loop here until you can get all your characters and stuff */
     while (1){
@@ -220,28 +235,65 @@ void load_firmware(void){
         rcv = uart_read(UART1, BLOCKING, &read);
         frame_length += (int)rcv;
 
+        if (c==0){
+
+            rcv = uart_read(UART1, BLOCKING, &read);
+            aesTextSize = (int)rcv << 8;
+            rcv = uart_read(UART1, BLOCKING, &read);
+            aesTextSize += (int)rcv;
+            //uart_write_str(UART2, aesTextSize);
+
+            c++;
+        }
+
         // Get the number of bytes specified
-        for (int i = 0; i < frame_length; ++i){
-            data[data_index] = uart_read(UART1, BLOCKING, &read);
-            data_index += 1;
+        for (int i = 0; i < frame_length; i++){
+            buffer[i+256*ctr] = uart_read(UART1, BLOCKING, &read);
+            //uart_write_hex(UART2, buffer[i]);
         } // for
 
         // If we filed our page buffer, program it
-        if (data_index == FLASH_PAGESIZE || frame_length == 0){
-
             if(frame_length == 0){
-                uart_write_str(UART2, "Got zero length frame.\n");
+            uart_write_str(UART2, "Got zero length frame.\n");
+            
+            char AESencrypted[aesTextSize];
+            for (int i=0; i<aesTextSize;i++){
+                AESencrypted[i]=buffer[i];
+            }
+
+            aes_decrypt((char*)AES_KEY, (char*)IV, AESencrypted, aesTextSize);
+
+            clearSize = (int)AESencrypted << 8;
+            clearSize += (int)AESencrypted;
+
+            unsigned char hash2[32];
+            for (int i=aesTextSize;i<aesTextSize+32;i++){
+                hash2[i]=AESencrypted[i];
+            }
+
+            for(int i=0;i<clearSize;i++){
+                AESencrypted[i]=AESencrypted[i+2];
+            }
+
+            unsigned char hash2compare[32];
+            sha_hash((unsigned char*)AESencrypted, clearSize, hash2compare);
+            
+            for(int i=0; i<32;i++){
+                if (hash2compare[i] != hash2[i]){
+                    SysCtlReset();
+                    return;
+                }
             }
             
             // Try to write flash and check for error
-            if (program_flash(page_addr, data, data_index)){
+            if (program_flash(page_addr, (unsigned char*)AESencrypted, clearSize)){
                 uart_write(UART1, ERROR); // Reject the firmware
                 SysCtlReset();            // Reset device
                 return;
             }
 
             // Verify flash program
-            if (memcmp(data, (void *) page_addr, data_index) != 0){
+            if (memcmp(AESencrypted, (void *) page_addr, clearSize) != 0){
                 uart_write_str(UART2, "Flash check failed.\n");
                 uart_write(UART1, ERROR); // Reject the firmware
                 SysCtlReset();            // Reset device
@@ -252,23 +304,19 @@ void load_firmware(void){
             uart_write_str(UART2, "Page successfully programmed\nAddress: ");
             uart_write_hex(UART2, page_addr);
             uart_write_str(UART2, "\nBytes: ");
-            uart_write_hex(UART2, data_index);
+            uart_write_hex(UART2, clearSize);
             nl(UART2);
-
-            // Update to next page
-            page_addr += FLASH_PAGESIZE;
-            data_index = 0;
 
             // If at end of firmware, go to main
             if (frame_length == 0){
                 uart_write(UART1, OK);
                 break;
             }
+            }
         } // if
-
+        ctr++;
         uart_write(UART1, OK); // Acknowledge the frame.
     }                          // while(1)
-}
 
 /*
  * Program a stream of bytes to the flash.
