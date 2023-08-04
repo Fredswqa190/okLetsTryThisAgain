@@ -79,7 +79,7 @@ def send_frame(ser, frame, debug=False):
 
     resp = ser.read(1)  # Wait for an OK from the bootloader to proceed.
 
-    time.sleep(0.1) # Small delay after sending the frame.
+    time.sleep(1) # Small delay after sending the frame.
 
     if resp != RESP_OK:
         raise RuntimeError("ERROR: Bootloader responded with {}".format(repr(resp)))
