@@ -23,7 +23,7 @@ def protect_firmware(infile, outfile, version, message):
         fwSize=len(firmware)
         
     # Reads keys, IV, nonce, etc for AES and CHA 
-    with open('secret_build_output.txt', 'rb') as f:
+    with open('/home/jovyan/work/okLetsTryThisAgain/tools/secret_build_output.txt', 'rb') as f:
         aesKey = f.read(16)
         aesiv = f.read(16)
         f.close()
@@ -40,7 +40,16 @@ def protect_firmware(infile, outfile, version, message):
 
     # Encrypt FIRWMARE with AES-CBC
     cipherNew = AES.new(aesKey, AES.MODE_CBC, iv=aesiv)
-    AESoutput= cipherNew.encrypt(pad(firmwareAndSize, AES.block_size))
+
+    chunks=[]
+    for i in range(int(len(firmwareAndSize)/16) - 1):
+        AESoutput = firmwareAndSize[i*16:((i+1)*16)]
+        chunks.append(AESoutput)
+
+    encrypted = []
+    for chunk in chunks:
+        AESoutput = cipherNew.encrypt(pad(chunk, AES.block_size))
+        encrypted.append(AESoutput)
     
     # Adds AES to firmware blob 
     # Hash firmware blob (AES) using SHA 256
@@ -48,7 +57,7 @@ def protect_firmware(infile, outfile, version, message):
     cTextSize=len(AESoutput)
 
      # Writes hash into secret output file 
-    with open('secret_build_output.txt', 'wb') as f:
+    with open('/home/jovyan/work/okLetsTryThisAgain/tools/secret_build_output.txt', 'wb') as f:
         f.write(hash_value) 
 
     print('ciphertext: '+str(cTextSize))
@@ -62,25 +71,32 @@ def protect_firmware(infile, outfile, version, message):
 
     #adding size
     #structure: metadata, ctextsize, encrypted(size+actualFirmware+hash), message, 0
-    firmware_blob=metadata + AESoutput + message.encode() + b'\x00'
+    #firmware_blob=metadata + encrypted + message.encode() + b'\x00'
     print('metadata: ' + str(len(metadata)))
     
-    print(len(firmware_blob))
+    #print(len(firmware_blob))
 
     # Write firmware blob to outfile
     with open(outfile, 'wb') as outfile:
-        outfile.write(firmware_blob)
+        outfile.write(metadata)
+        for i in range (len(encrypted)):
+            outfile.write(encrypted[i])
+        outfile.write(message.encode())
+        outfile.write(b'\x00')
 
-    with open('hi.txt', 'w') as thing:
-        list = util.print_hex(firmware_blob)
-        thing.write(str(list))
+    with open('/home/jovyan/work/okLetsTryThisAgain/tools/hi.txt', 'wb') as thing:
+        #list = util.print_hex(firmware_blob)
+        for i in range (len(encrypted)):
+            thing.write(encrypted[i])
+    
+    with open('/home/jovyan/work/okLetsTryThisAgain/tools/hi.txt', 'rb') as thing3:
+        everything = thing3.read()
 
     #AESoutput
-    cipher = AES.new(aesKey, AES.MODE_CBC, iv=aesiv)
-    data = cipher.decrypt(AESoutput)
-    with open('pain.txt', 'w') as thing2:
-        list = util.print_hex(data)
-        thing2.write(str(list))
+        cipher = AES.new(aesKey, AES.MODE_CBC, iv=aesiv)
+        data = cipher.decrypt(everything)
+        with open('/home/jovyan/work/okLetsTryThisAgain/tools/pain.txt', 'wb') as thing2:
+            thing2.write(data)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Firmware Update Tool')

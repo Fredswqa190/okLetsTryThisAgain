@@ -179,6 +179,7 @@ void load_initial_firmware(void){
  * Load the firmware into flash.
  */
 void load_firmware(void){
+    volatile char receivedDataChunk[FLASH_PAGESIZE];
     int frame_length = 0;
     int read = 0;
     uint32_t rcv = 0;
@@ -187,7 +188,6 @@ void load_firmware(void){
     uint32_t version = 0;
     uint32_t size = 0;
     volatile uint32_t fwSize = 0;
-    char receivedDataChunk[FLASH_PAGESIZE];
 
     //aes keys
     const uint8_t* aesKey = AES_KEY;
@@ -245,7 +245,7 @@ void load_firmware(void){
     /* Loop here until you can get all your characters and stuff */
     
     //sets all values to 0 in buffer
-    memset(receivedDataChunk, 0x0, 1024);
+    //memset(receivedDataChunk, 0x0, 1024);
 
     while (1){
         
@@ -282,11 +282,21 @@ void load_firmware(void){
         // Get the number of bytes specified
         for (int i = 0; i < frame_length; i++){
             receivedDataChunk[data_index] = uart_read(UART1, BLOCKING, &read);
+            uart_write_hex(UART2, receivedDataChunk[data_index]);
             data_index += 1;
         } // for
+        
             
             if(data_index == FLASH_PAGESIZE || frame_length == 0){
                 data_index = 0;
+
+                size_t size2 = 0;
+                for (int i = 0; i < 64; ++i) {
+                    size2 += 16;
+                    aes_decrypt((char*)AES_KEY, (char*)IV, receivedDataChunk + (i * 16), 16);
+                    if (size2 >= FLASH_PAGESIZE)
+                        break;
+                }
                 /*int ctr = 0;
                 data_index = 0;
                 int data_index2 = 0;*/
@@ -306,7 +316,9 @@ void load_firmware(void){
                         cText[data_index2] = buffer[i];
                     }
                 }*/
-                aes_decrypt((char*)aesKey, (char*)iv, (char*)receivedDataChunk, FLASH_PAGESIZE);
+
+                //return 1;
+                //aes_decrypt((char*)aesKey, (char*)iv, (char*)receivedDataChunk, FLASH_PAGESIZE);
 
                 int c = 0;
                 if (c==0){
@@ -353,39 +365,39 @@ void load_firmware(void){
             for (int i=0;i<pad;i++){
                 padding[i+fwSize]=0;
             }*/
-            if (program_flash(page_addr, (unsigned char *)receivedDataChunk, (size_t)fwSize)){
-                uart_write(UART1, ERROR); // Reject the firmware
-                SysCtlReset();            // Reset device
-                return;
-            }
-            uart_write_str(UART2, "passed first.\n");
+                if (program_flash(page_addr, (unsigned char *)receivedDataChunk, (size_t)fwSize)){
+                    uart_write(UART1, ERROR); // Reject the firmware
+                    SysCtlReset();            // Reset device
+                    return;
+                }
+                uart_write_str(UART2, "passed first.\n");
 
-            // Verify flash program
-            if (memcmp(receivedDataChunk, (void *) page_addr, (size_t)fwSize) != 0){
-                uart_write_str(UART2, "Flash check failed.\n");
-                uart_write(UART1, ERROR); // Reject the firmware
-                SysCtlReset();            // Reset device
-                return;
-            }
-            
-            // If at end of firmware, go to main
-            if (frame_length == 0){
-                uart_write(UART1, OK);
-                uart_write_str(UART2, "Got zero length frame.\n");
-            }
+                // Verify flash program
+                if (memcmp(receivedDataChunk, (void *) page_addr, (size_t)fwSize) != 0){
+                    uart_write_str(UART2, "Flash check failed.\n");
+                    uart_write(UART1, ERROR); // Reject the firmware
+                    SysCtlReset();            // Reset device
+                    return;
+                }
+                
+                // If at end of firmware, go to main
+                if (frame_length == 0){
+                    uart_write(UART1, OK);
+                    uart_write_str(UART2, "Got zero length frame.\n");
+                }
 
-                    // Write debugging messages to UART2.
-            uart_write_str(UART2, "Page successfully programmed\nAddress: ");
-            uart_write_hex(UART2, page_addr);
-            uart_write_str(UART2, "\nBytes: ");
-            uart_write_hex(UART2, frame_length);
-            nl(UART2);
+                        // Write debugging messages to UART2.
+                uart_write_str(UART2, "Page successfully programmed\nAddress: ");
+                uart_write_hex(UART2, page_addr);
+                uart_write_str(UART2, "\nBytes: ");
+                uart_write_hex(UART2, frame_length);
+                nl(UART2);
 
-            }
-        uart_write(UART1, OK); // Acknowledge the frame.
-        uart_write_str(UART2, "sent OK message\n");
-    }
-    uart_write_str(UART2, "Outside while\n");
+                }
+            uart_write(UART1, OK); // Acknowledge the frame.
+            uart_write_str(UART2, "sent OK message\n");
+        }
+        uart_write_str(UART2, "Outside while\n");
     //fwSize = (int)buffer[0] << 8;
     //fwSize += (int)buffer[1];
     //dynamically allocate a buffer for firmware
